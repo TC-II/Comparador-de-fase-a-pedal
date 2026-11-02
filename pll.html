@@ -1,0 +1,978 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PLL con detector XOR</title>
+<style>
+  :root {
+    --bg: #1c1c21;
+    --panel: #24242b;
+    --fg: #e8e8ea;
+    --muted: #8a8a94;
+    --border: #444;
+    --grid: rgba(255,255,255,0.07);
+    --edge: rgba(255,255,255,0.18);
+    --red: #ff5e48;
+    --blue: #48aaf7;
+    --v1: #5eab93;
+    --v2: #f5a04a;
+    --avg: #ff9cc8;
+    --btn: #2e2e36;
+  }
+  :root[data-theme="light"] {
+    --bg: #f4f4f6;
+    --panel: #ffffff;
+    --fg: #1c1c21;
+    --muted: #6b6b75;
+    --border: #cfcfd6;
+    --grid: rgba(0,0,0,0.08);
+    --edge: rgba(0,0,0,0.22);
+    --red: #e8472f;
+    --blue: #1f8fe0;
+    --v1: #3f8f77;
+    --v2: #d97a1c;
+    --avg: #e46a9e;
+    --btn: #e3e4f2;
+  }
+  .topbar { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--muted); }
+  button.icon { display: grid; place-items: center; width: 40px; height: 40px; padding: 0;
+    border: none; border-radius: 10px; background: var(--btn); color: var(--fg); }
+  button.icon:hover { filter: brightness(1.1); }
+  .seg { display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--btn); }
+  .seg button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0;
+    border: none; border-radius: 8px; background: transparent; color: var(--muted); font-size: 20px; }
+  .seg button.active { background: var(--panel); color: var(--fg); }
+  .seg a { display: grid; place-items: center; height: 34px; padding: 0 10px; border-radius: 8px;
+    color: var(--muted); text-decoration: none; font-size: 14px; }
+  .seg a.active { background: var(--panel); color: var(--fg); }
+  .seg a:not(.active):hover { color: var(--fg); }
+  :root[data-theme="light"] .moon, :root:not([data-theme="light"]) .sun { display: none; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font-family: system-ui, "Segoe UI", sans-serif; }
+  .wrap { display: grid; grid-template-columns: minmax(300px, 1fr) 2.6fr; gap: 16px;
+    height: 100vh; padding: 16px; }
+  .left, .right { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  #circ { width: 100%; flex: 1; min-height: 260px; touch-action: none; }
+  .right canvas { width: 100%; flex: 1; min-height: 200px; background: var(--panel); border-radius: 8px; }
+  .ctrl { background: var(--panel); border-radius: 8px; padding: 10px 12px; display: grid;
+    grid-template-columns: auto 1fr auto; gap: 6px 10px; align-items: center; font-size: 14px; }
+  .ctrl .name { font-weight: 600; }
+  .ctrl input[type=range] { width: 100%; }
+  .v1 .name { color: var(--v1); } .v1 input[type=range] { accent-color: var(--v1); }
+  .ctrl .v2n { color: var(--v2); font-weight: 600; }
+  .ctrl .hint { color: var(--muted); font-size: 12px; }
+  .ranges { grid-column: 1 / -1; display: flex; justify-content: space-around; gap: 12px; flex-wrap: wrap;
+    padding: 6px 14px; border-radius: 999px; background: var(--btn); font-size: 13px;
+    font-variant-numeric: tabular-nums; }
+  .ranges b { font-weight: 600; color: var(--muted); margin-right: 4px; }
+  .ranges i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px;
+    vertical-align: -1px; }
+  .rbar { grid-column: 2; position: relative; height: 6px; margin: -4px 8px 0; border-radius: 3px;
+    background: var(--btn); }
+  .rbar span { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+  .rbar .lock, .ranges .lock { background: color-mix(in srgb, var(--v1) 35%, transparent); }
+  .rbar .capt, .ranges .capt { background: var(--v1); }
+  .switch { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+  .switch input { position: absolute; opacity: 0; pointer-events: none; }
+  .switch .knob { position: relative; width: 34px; height: 20px; border-radius: 10px; background: var(--border);
+    transition: background .15s; flex: none; }
+  .switch .knob::after { content: ''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px;
+    border-radius: 50%; background: var(--fg); transition: transform .15s; }
+  .switch input:checked + .knob { background: var(--v1); }
+  .switch input:checked + .knob::after { transform: translateX(14px); }
+  .switch input:focus-visible + .knob { outline: 2px solid var(--v1); outline-offset: 2px; }
+  .val { font-variant-numeric: tabular-nums; min-width: 72px; text-align: right; }
+  .buttons { display: flex; gap: 8px; }
+  button { background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 14px; font-size: 14px; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  .pop { position: fixed; z-index: 10; min-width: 220px; background: var(--panel); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.35); }
+  .pop[hidden] { display: none; }
+  .pop .ttl { font-weight: 600; margin-bottom: 8px; }
+  .pop label { display: grid; grid-template-columns: 1fr 90px; gap: 8px; align-items: center; margin: 4px 0; }
+  .pop input { width: 90px; background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 4px; padding: 3px 6px; font-size: 14px; }
+  .pop .info { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.5; }
+  @media (max-width: 800px) {
+    .wrap { grid-template-columns: 1fr; height: auto; }
+    .right canvas { flex: none; height: 300px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="left">
+    <div class="topbar">
+      <button id="theme" class="icon" title="Cambiar tema" aria-label="Cambiar tema">
+        <svg class="sun" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+        </svg>
+        <svg class="moon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
+      <div class="seg" role="group" aria-label="Modo de la rueda">
+        <button data-mode="vector" title="Vectorial" aria-label="Vectorial">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+        </button>
+        <button data-mode="car" title="Autito" aria-label="Autito">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/>
+            <circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>
+          </svg>
+        </button>
+      </div>
+      <nav class="seg" aria-label="Pantallas">
+        <a href="index.html">XOR</a>
+        <a href="pll.html" class="active" aria-current="page">PLL</a>
+      </nav>
+    </div>
+
+    <canvas id="circ"></canvas>
+
+    <div class="ctrl v1">
+      <span class="name">ω₁</span>
+      <input type="range" id="w1" min="0.3" max="5" step="0.01" value="2.5">
+      <span class="val" id="w1v"></span>
+      <span></span>
+      <div class="rbar" aria-hidden="true"><span class="lock" id="lockB"></span><span class="capt" id="captB"></span></div>
+      <span></span>
+      <span class="v2n">ω₂</span>
+      <span class="hint" style="grid-column: auto">VCO</span>
+      <span class="val" id="w2v"></span>
+      <div class="ranges">
+        <span><i class="lock"></i><b>Enganche</b> <span id="lockR"></span></span>
+        <span><i class="capt"></i><b>Captura</b> <span id="captR"></span></span>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="type2">
+        <span class="knob"></span>
+        Comparador tipo 2 (PFD)
+      </label>
+    </div>
+
+    <div class="buttons">
+      <button id="pause">Pausa</button>
+      <button id="reset">Reiniciar</button>
+    </div>
+  </div>
+
+  <div class="right">
+    <canvas id="lf"></canvas>
+    <canvas id="lp"></canvas>
+  </div>
+</div>
+
+<div class="pop" id="pop" hidden></div>
+
+<script>
+const C = {};
+function readColors() {
+  const css = getComputedStyle(document.documentElement);
+  for (const k of ['red', 'blue', 'v1', 'v2', 'avg', 'fg', 'muted', 'grid', 'edge', 'bg', 'panel'])
+    C[k] = css.getPropertyValue('--' + k).trim();
+}
+
+const LW = 3;              // grosor de casquetes y vectores
+const TAU = 2 * Math.PI;
+const $ = id => document.getElementById(id);
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// ---- Constantes del circuito (editables con clic en los bloques) ----
+const P = {
+  vdd: 5,      // V_DD [V]: niveles lógicos y rango de v_c
+  wc: 0.3,     // ω₁ [rad/s]: corte del pasabajos RC (C fijo, R = 1/(ω₁·C))
+  c: 100,      // C [µF]
+  icp: 17,     // I_cp [µA]: bomba de carga del PFD
+  r2: 120,     // R [kΩ]: R en serie con C (filtro del PFD)
+  c2: 10,      // C₂ [µF]: capacitor de ripple en paralelo (filtro del PFD)
+  wmin: 1,     // ω_min [rad/s]: VCO con v_c = 0
+  wmax: 4,     // ω_max [rad/s]: VCO con v_c = V_DD
+};
+let type2 = false;   // false: XOR + RC; true: PFD + bomba de carga + (R–C serie) ∥ C₂
+const tau1 = () => 1 / P.wc;                      // s
+const rLP = () => 1 / (P.wc * P.c * 1e-6);          // Ω
+const kv = () => (P.wmax - P.wmin) / P.vdd;        // K_VCO [rad/(s·V)]: ω₂ = ω_min + K_VCO·v_c
+
+// ---- Simulación ----
+// Se simulan dos cosas a la vez con la misma entrada φ₁:
+//  · el circuito (lazo de abajo y la rueda): señales cuadradas, XOR/PFD, filtro, VCO con v_c ∈ [0, V_DD]
+//  · el modelo promediado (lazo de arriba): ψ = ∫(ω₁ − ω₂)dt, detector con su característica media
+//    (triangular la XOR, diente de sierra el PFD), mismo filtro y VCO con v_c ∈ [0, V_DD]
+const FS = 500, DT = 1 / FS;   // paso de integración
+const DEC = 10;                // se guarda 1 de cada DEC muestras (50 Hz)
+const T_WIN = 40;              // segundos visibles
+const N = T_WIN * FS / DEC;
+const S = {};                  // buffers circulares de lo que se grafica
+for (const k of ['w1', 'w2l', 'dwl', 'psi', 'vcl', 'x1', 'x2', 'pd', 'vc']) S[k] = new Float32Array(N);
+let head = 0, count = 0, sub = 0;
+let ph1, ph2, vc, vC, up, dn, pb1, pb2;   // circuito
+let ph2l, vcl, vCl;                       // modelo promediado
+let pdHold;                               // retención de pulsos más cortos que una muestra guardada
+let paused = false;
+
+const bit = th => (Math.sin(th) >= 0 ? 1 : 0);
+const at = k => (head - 1 - k + N) % N;   // k muestras (guardadas) atrás
+const wrap = a => ((a % TAU) + TAU) % TAU;
+// característica media del PFD: lineal en ±2π y se repite (con su signo) en cada ciclo resbalado
+const pfdAvg = psi => (psi >= 0 ? (psi % TAU) / TAU : -((-psi) % TAU) / TAU);
+
+function reset() {
+  head = 0; count = 0; sub = 0;
+  ph1 = 0; ph2 = 0; vc = 0; vC = 0; up = 0; dn = 0; pb1 = 1; pb2 = 1;
+  ph2l = 0; vcl = 0; vCl = 0;
+  pdHold = 0;
+}
+
+const vcoW = () => P.wmin + kv() * clamp(vc, 0, P.vdd);
+
+function step() {
+  const r1 = +$('w1').value, r2 = vcoW();
+  const R1 = rLP(), R2 = P.r2 * 1e3, Cf = P.c * 1e-6, C2f = P.c2 * 1e-6, Icp = P.icp * 1e-6;
+
+  // circuito
+  ph1 += (r1) * DT;
+  ph2 += (r2) * DT;
+  const b1 = bit(ph1), b2 = bit(ph2);
+  let pd;
+  if (!type2) {
+    pd = P.vdd * (b1 ^ b2);
+    vc += (pd - vc) * DT / (R1 * Cf);
+  } else {
+    if (b1 && !pb1) up = 1;           // flanco ascendente de la referencia
+    if (b2 && !pb2) dn = 1;           // flanco ascendente del VCO
+    if (up && dn) up = dn = 0;        // reset del PFD
+    pd = up - dn;
+    const i = Icp * pd, iR = (vc - vC) / R2;   // i: bomba → nodo v_c; iR: rama R–C
+    vc = clamp(vc + (i - iR) / C2f * DT, 0, P.vdd);
+    vC = clamp(vC + iR / Cf * DT, 0, P.vdd);
+  }
+  pb1 = b1; pb2 = b2;
+
+  // modelo promediado
+  const r2l = P.wmin + kv() * clamp(vcl, 0, P.vdd);
+  ph2l += r2l * DT;
+  const psi = ph1 - ph2l;
+  if (!type2) {
+    const vd = P.vdd * Math.abs(Math.atan2(Math.sin(psi), Math.cos(psi))) / Math.PI;   // XOR: |ψ|/π, periódica
+    vcl += (vd - vcl) * DT / (R1 * Cf);
+  } else {
+    const iR = (vcl - vCl) / R2;
+    vcl = clamp(vcl + (Icp * pfdAvg(psi) - iR) / C2f * DT, 0, P.vdd);
+    vCl = clamp(vCl + iR / Cf * DT, 0, P.vdd);
+  }
+
+  // los pulsos del PFD pueden ser más cortos que una muestra guardada: se retienen
+  if (pd !== 0 || !type2) pdHold = pd;
+  if (++sub < DEC) return;
+  sub = 0;
+  S.w1[head] = r1; S.w2l[head] = r2l; S.dwl[head] = r1 - r2l;
+  S.psi[head] = psi; S.vcl[head] = vcl;
+  S.x1[head] = P.vdd * b1; S.x2[head] = P.vdd * b2;
+  S.pd[head] = pdHold; S.vc[head] = vc;
+  pdHold = type2 ? pd : 0;
+  head = (head + 1) % N;
+  if (count < N) count++;
+}
+
+function setType2(on) {
+  type2 = on;
+  up = dn = 0; vC = clamp(vc, 0, P.vdd); vCl = vcl;
+  pb1 = bit(ph1); pb2 = bit(ph2);
+  closePop(); labels();
+}
+
+// ---- Rangos de enganche y captura ----
+function ranges() {
+  const lo = P.wmin, hi = P.wmax;
+  if (type2) return { lock: [lo, hi], capt: [lo, hi] };
+  // XOR + RC: Δω_C ≈ Δω_L·|F(jΔω_C)|, con F = 1/(1 + sτ)
+  const dL = (kv() * P.vdd / 2), a = dL * tau1();
+  const x = Math.sqrt((Math.sqrt(1 + 4 * a * a) - 1) / 2);
+  const dC = (x / tau1()), c = (lo + hi) / 2;
+  return { lock: [lo, hi], capt: [c - dC, c + dC] };
+}
+
+// ---- Dibujo: utilidades ----
+function fit(cv) {
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return [ctx, r.width, r.height];
+}
+
+function arrow(ctx, x0, y0, x1, y1, color, lw) {
+  const a = Math.atan2(y1 - y0, x1 - x0), hl = 14;
+  ctx.strokeStyle = ctx.fillStyle = color; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(x0, y0);
+  ctx.lineTo(x1 - hl * 0.8 * Math.cos(a), y1 - hl * 0.8 * Math.sin(a)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x1, y1);
+  ctx.lineTo(x1 - hl * Math.cos(a - 0.4), y1 - hl * Math.sin(a - 0.4));
+  ctx.lineTo(x1 - hl * Math.cos(a + 0.4), y1 - hl * Math.sin(a + 0.4));
+  ctx.closePath(); ctx.fill();
+}
+
+// Autito visto desde arriba, apuntando hacia +x
+function car(ctx, x, y, ang, color) {
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(ang); ctx.scale(1.4, 1.4);
+  ctx.fillStyle = '#111';
+  for (const [wx, wy] of [[-8, -7], [6, -7], [-8, 5], [6, 5]]) ctx.fillRect(wx, wy, 6, 2.5);
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.roundRect(-13, -6, 26, 12, 4); ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.beginPath(); ctx.roundRect(-5, -4.5, 9, 9, 2); ctx.fill();   // techo / parabrisas
+  ctx.fillStyle = '#ffe680';
+  ctx.fillRect(11, -5, 2, 2.5); ctx.fillRect(11, 2.5, 2, 2.5);    // faros
+  ctx.restore();
+}
+
+// ---- Rueda ----
+let geo = { cx: 0, cy: 0, R: 0 };
+function drawCircle() {
+  const [ctx, w, h] = fit($('circ'));
+  ctx.clearRect(0, 0, w, h);
+  const cx = w / 2, cy = h / 2;
+  const lane = 14;
+  const R = Math.min(w, h) / 2 - (mode === 'car' ? 2 * lane + 22 : 24);
+  geo = { cx, cy, R };
+  const th1 = ph1, th2 = ph2;
+
+  if (mode !== 'car') {
+    ctx.strokeStyle = C.muted; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - R - 18, cy); ctx.lineTo(cx + R + 18, cy);
+    ctx.moveTo(cx, cy - R - 18); ctx.lineTo(cx, cy + R + 18);
+    ctx.stroke();
+  } else {
+    const ro = R + 2 * lane, ri = R - 2 * lane;
+    ctx.fillStyle = C.grid;
+    ctx.beginPath(); ctx.arc(cx, cy, ro, 0, TAU); ctx.arc(cx, cy, ri, 0, TAU, true); ctx.fill();
+    ctx.strokeStyle = C.muted; ctx.lineWidth = LW;
+    ctx.beginPath(); ctx.arc(cx, cy, ro, 0, TAU); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, ri, 0, TAU); ctx.stroke();
+    ctx.setLineDash([12, 10]);
+  }
+  ctx.lineWidth = LW;
+  ctx.strokeStyle = C.red;  ctx.beginPath(); ctx.arc(cx, cy, R, Math.PI, TAU); ctx.stroke();
+  ctx.strokeStyle = C.blue; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI); ctx.stroke();
+  ctx.setLineDash([]);
+
+  if (mode === 'car') {
+    // x₁ (el mío) por afuera, x₂ (VCO) por adentro; sentido antihorario
+    car(ctx, cx + (R + lane) * Math.cos(th1), cy - (R + lane) * Math.sin(th1), -th1 - Math.PI / 2, C.v1);
+    car(ctx, cx + (R - lane) * Math.cos(th2), cy - (R - lane) * Math.sin(th2), -th2 - Math.PI / 2, C.v2);
+  } else {
+    const Rt = R - LW / 2;
+    arrow(ctx, cx, cy, cx + Rt * Math.cos(th2), cy - Rt * Math.sin(th2), C.v2, LW);
+    arrow(ctx, cx, cy, cx + Rt * Math.cos(th1), cy - Rt * Math.sin(th1), C.v1, LW);
+    ctx.fillStyle = C.fg; ctx.beginPath(); ctx.arc(cx, cy, 4, 0, TAU); ctx.fill();
+  }
+}
+
+// ---- Notación matemática en canvas ----
+// parts: strings o {t, sub, roman}; cursiva serif salvo roman
+const MF = '"Cambria Math", "Times New Roman", serif';
+function mfont(size, roman) { return (roman ? '' : 'italic ') + size + 'px ' + MF; }
+function norm(parts) { return parts.map(p => (typeof p === 'string' ? { t: p } : p)); }
+function mwidth(ctx, parts, size) {
+  let w = 0;
+  for (const p of norm(parts)) {
+    ctx.font = mfont(p.sub ? size * 0.68 : size, p.roman);
+    w += ctx.measureText(p.t).width;
+  }
+  return w;
+}
+function mdraw(ctx, parts, x, y, size, align, color) {
+  let cx = align === 'center' ? x - mwidth(ctx, parts, size) / 2 : x;
+  ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  for (const p of norm(parts)) {
+    const s = p.sub ? size * 0.68 : size;
+    ctx.font = mfont(s, p.roman);
+    ctx.fillText(p.t, cx, p.sub ? y + size * 0.25 : y);
+    cx += ctx.measureText(p.t).width;
+  }
+}
+// fracción centrada en (x, y): y = altura de la barra
+function mfrac(ctx, num, den, x, y, size, color) {
+  const w = Math.max(mwidth(ctx, num, size), mwidth(ctx, den, size)) + 8;
+  ctx.strokeStyle = color; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(x - w / 2, y); ctx.lineTo(x + w / 2, y); ctx.stroke();
+  mdraw(ctx, num, x, y - size * 0.3, size, 'center', color);
+  mdraw(ctx, den, x, y + size * 0.95, size, 'center', color);
+}
+
+const sb = t => ({ t, sub: 1, roman: 1 });
+const rm = t => ({ t, roman: 1 });
+const W1 = ['ω', sb('1')], W2 = ['ω', sb('2')];
+const KPHI = ['K', { t: 'φ', sub: 1 }], KV = ['K', sb('VCO')];
+const VC = ['v', sb('c')];
+const MINUS = rm(' − ');
+const fmt1 = v => (+v.toPrecision(3)).toString();
+const fmtR = o => (o >= 1e6 ? +(o / 1e6).toPrecision(3) + ' MΩ' : o >= 1e3 ? +(o / 1e3).toPrecision(3) + ' kΩ' : +o.toPrecision(3) + ' Ω');
+const vcoLines = () => [
+  ['ω', sb('min'), rm(' = ' + fmt1(P.wmin) + ' rad/s   '), 'ω', sb('max'), rm(' = ' + fmt1(P.wmax) + ' rad/s')],
+  ['K', sb('VCO'), rm(' = ' + fmt1(kv()) + ' rad/(s·V)')],
+];
+
+// ---- Escalas de los gráficos ----
+function nice(v) {
+  const e = Math.pow(10, Math.floor(Math.log10(v))), n = v / e;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * e;
+}
+function extent(bufs) {
+  let lo = Infinity, hi = -Infinity;
+  for (const b of bufs) for (let k = 0; k < count; k++) { const v = b[at(k)]; if (v < lo) lo = v; if (v > hi) hi = v; }
+  return [lo, hi];
+}
+// rango fijo [lo, hi], que se agranda si los datos se salen
+function rangeAuto(bufs, lo, hi) {
+  const [a, b] = extent(bufs);
+  if (a >= lo && b <= hi) return [lo, hi];
+  const st = nice((Math.max(b, hi) - Math.min(a, lo)) / 4);
+  return [Math.floor(Math.min(a, lo) / st) * st, Math.ceil(Math.max(b, hi) / st) * st];
+}
+// rango simétrico redondeado
+function rangeSym(buf) {
+  const [a, b] = extent([buf]);
+  return count ? (m => [-m, m])(nice(Math.max(0.05, -a, b))) : [-0.5, 0.5];
+}
+// rango en múltiplos de π para la fase sin envolver
+function rangePi(buf) {
+  let [lo, hi] = count ? extent([buf]) : [0, Math.PI];
+  lo = Math.floor(lo / Math.PI) * Math.PI; hi = Math.ceil(hi / Math.PI) * Math.PI;
+  if (hi - lo < Math.PI) hi = lo + Math.PI;
+  return [lo, hi];
+}
+const rangeW = () => rangeAuto([S.w1, S.w2l], 0, Math.max(5, Math.ceil(P.wmax)));
+// divisiones enteras estrictamente dentro de [lo, hi]
+const ints = ([lo, hi]) => { const t = []; for (let v = Math.floor(lo) + 1; v < hi && t.length < 12; v++) t.push(v); return t; };
+const fmtNum = v => (+v.toPrecision(2)).toString();
+function fmtPi(v) {
+  const n = Math.round(v / (Math.PI / 2));
+  if (n === 0) return '0';
+  const s = n < 0 ? '−' : '';
+  const a = Math.abs(n);
+  return a % 2 ? s + (a === 1 ? '' : a) + 'π/2' : s + (a === 2 ? '' : a / 2) + 'π';
+}
+const fmtUD = v => (v > 0 ? 'UP' : v < 0 ? 'DN' : '0');
+
+// ---- Diagramas (coordenadas virtuales 1000 × 400) ----
+const VW = 1000, VH = 400;
+const Y = 175, YF = 305, BH = 60;   // cable principal, realimentación, alto de bloque
+const SUM = { x: 250, r: 16 };
+const XR = 900;                     // donde baja la realimentación
+const VCO = { x: 560, w: 120, y: YF - BH / 2 };   // modelo
+const VCC = { x: 430, w: 120, y: YF - BH / 2 };   // circuito
+
+function head_(ctx, x, y, dir) {   // punta de flecha en (x, y) apuntando en dir (rad)
+  const hl = 9;
+  ctx.beginPath(); ctx.moveTo(x, y);
+  ctx.lineTo(x - hl * Math.cos(dir - 0.35), y - hl * Math.sin(dir - 0.35));
+  ctx.lineTo(x - hl * Math.cos(dir + 0.35), y - hl * Math.sin(dir + 0.35));
+  ctx.closePath(); ctx.fill();
+}
+function wire(ctx, pts, arrowEnd) {
+  ctx.beginPath(); ctx.moveTo(...pts[0]);
+  for (const p of pts.slice(1)) ctx.lineTo(...p);
+  ctx.stroke();
+  if (arrowEnd) {
+    const [a, b] = pts.slice(-2);
+    head_(ctx, b[0], b[1], Math.atan2(b[1] - a[1], b[0] - a[0]));
+  }
+}
+function dot(ctx, x, y) { ctx.beginPath(); ctx.arc(x, y, 3.5, 0, TAU); ctx.fill(); }
+function ink(ctx, hover) { ctx.strokeStyle = hover ? C.avg : C.fg; ctx.fillStyle = hover ? C.avg : C.fg; ctx.lineWidth = hover ? 2.5 : 1.5; }
+function caption(ctx, x, y, lines, hover) {
+  ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  lines.forEach((t, i) => {
+    const col = i && hover ? C.avg : C.muted;
+    if (Array.isArray(t)) mdraw(ctx, t, x, y + 16 * i, 14, 'center', col);
+    else { ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = col; ctx.fillText(t, x, y + 16 * i); }
+  });
+}
+
+function block(ctx, x, y, w, hover, tf) {
+  ink(ctx, hover); ctx.fillStyle = C.panel;
+  ctx.beginPath(); ctx.rect(x, y, w, BH); ctx.fill(); ctx.stroke();
+  tf(x + w / 2, y + BH / 2);
+}
+
+const SW = 170, SH = 100;   // tamaño por defecto de cada caja-osciloscopio
+function drawScope(ctx, sc) {
+  const { x, y } = sc, w = sc.w || SW, h = sc.h || SH, lw = sc.lw || 2;
+
+  // derivación al cable
+  ctx.strokeStyle = C.muted; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  if (sc.side === 'right') { ctx.moveTo(x + w, sc.tap[1]); ctx.lineTo(...sc.tap); }
+  else { ctx.moveTo(sc.tap[0], y + h); ctx.lineTo(...sc.tap); }
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = C.fg; dot(ctx, ...sc.tap);
+
+  // variable arriba de la caja, centrada
+  ctx.font = '11px system-ui, sans-serif';
+  const unit = sc.unit ? '  ' + sc.unit : '', uw = ctx.measureText(unit).width;
+  const tw = mwidth(ctx, sc.title, 15), t0 = x + (w - tw - uw) / 2;
+  mdraw(ctx, sc.title, t0, y - 7, 15, 'left', C.fg);
+  ctx.font = '11px system-ui, sans-serif'; ctx.fillStyle = C.muted; ctx.textAlign = 'left';
+  ctx.fillText(unit, t0 + tw, y - 8);
+
+  ctx.fillStyle = C.bg; ctx.strokeStyle = C.edge; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.rect(x, y, w, h); ctx.fill(); ctx.stroke();
+
+  const px = x + 32, pw = w - 38, py = y + 8, ph = h - 16;
+  const [lo, hi] = sc.range;
+  const ty = v => py + ph * (1 - (v - lo) / (hi - lo));
+  const tx = k => px + pw * (1 - k / (N - 1));
+
+  ctx.lineWidth = 1; ctx.strokeStyle = C.grid;
+  for (let i = 0; i <= 6; i++) { const gx = px + pw * i / 6; ctx.beginPath(); ctx.moveTo(gx, py); ctx.lineTo(gx, py + ph); ctx.stroke(); }
+  const ticks = [lo, hi, ...(sc.ticks || [])];
+  if (lo < 0 && hi > 0) ticks.push(0);
+  ctx.fillStyle = C.muted; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (const v of ticks) {
+    ctx.beginPath(); ctx.moveTo(px, ty(v)); ctx.lineTo(px + pw, ty(v)); ctx.stroke();
+    ctx.fillText(sc.fmt(v), px - 5, ty(v));
+  }
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(px, py - 2, pw, ph + 4); ctx.clip();
+  for (const s of sc.series) {
+    const buf = S[s.key];
+    ctx.strokeStyle = C[s.col];
+    if (s.step) {
+      // flancos finos, niveles con el grosor normal
+      ctx.lineWidth = 0.75; ctx.beginPath();
+      for (let k = count - 2; k >= 0; k--) {
+        const a = buf[at(k + 1)], b = buf[at(k)];
+        if (a !== b) { ctx.moveTo(tx(k), ty(a)); ctx.lineTo(tx(k), ty(b)); }
+      }
+      ctx.stroke();
+      ctx.lineWidth = lw; ctx.beginPath();
+      for (let k = count - 1; k >= 0; k--) {
+        const v = buf[at(k)];
+        if (k === count - 1 || v !== buf[at(k + 1)]) ctx.moveTo(tx(k), ty(v));
+        ctx.lineTo(tx(Math.max(k - 1, 0)), ty(v));
+      }
+      ctx.stroke();
+      continue;
+    }
+    ctx.lineWidth = s.faint ? 1 : lw;
+    if (s.faint) ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    for (let k = count - 1; k >= 0; k--) {
+      const X = tx(k), Yv = ty(buf[at(k)]);
+      k === count - 1 ? ctx.moveTo(X, Yv) : ctx.lineTo(X, Yv);
+    }
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
+// Ajusta el lienzo virtual al canvas; ex = ancho virtual sobrante a cada lado
+function frameLoop(id, title) {
+  const [ctx, w, h] = fit($(id));
+  ctx.clearRect(0, 0, w, h);
+  const s = Math.min(w / VW, h / VH), ox = (w - VW * s) / 2, oy = (h - VH * s) / 2;
+  const ex = ox / s;
+  view[id] = { s, ox, oy };
+  ctx.save(); ctx.translate(ox, oy); ctx.scale(s, s);
+  ctx.font = '600 13px system-ui, sans-serif'; ctx.fillStyle = C.muted;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText(title, VW + ex - 8, VH - 8);
+  ctx.font = '11px system-ui, sans-serif';
+  ctx.fillText('ventana: últimos ' + T_WIN + ' s', VW + ex - 8, VH - 26);
+  return [ctx, ex];
+}
+
+const hits = { lf: [], lp: [] };   // zonas clicables por canvas, en coordenadas virtuales
+let hoverId = null;
+const view = {};
+
+// Lazo de arriba: modelo promediado, señales abstractas
+function drawModel() {
+  const [ctx] = frameLoop('lf', 'Modelo promediado');
+  const H = hits.lf = [];
+  const bY = Y - BH / 2;
+  const INT = { x: 330, w: 80 }, KDB = { x: 460, w: 80 }, FB = type2 ? { x: 590, w: 170 } : { x: 600, w: 120 };
+
+  ctx.strokeStyle = C.fg; ctx.fillStyle = C.fg; ctx.lineWidth = 1.5;
+  wire(ctx, [[20, Y], [SUM.x - SUM.r, Y]], true);
+  wire(ctx, [[SUM.x + SUM.r, Y], [INT.x, Y]], true);
+  wire(ctx, [[INT.x + INT.w, Y], [KDB.x, Y]], true);
+  wire(ctx, [[KDB.x + KDB.w, Y], [FB.x, Y]], true);
+  wire(ctx, [[FB.x + FB.w, Y], [XR, Y], [XR, YF], [VCO.x + VCO.w, YF]], true);
+  wire(ctx, [[VCO.x, YF], [SUM.x, YF], [SUM.x, Y + SUM.r]], true);
+
+  // sumador
+  ctx.fillStyle = C.panel;
+  ctx.beginPath(); ctx.arc(SUM.x, Y, SUM.r, 0, TAU); ctx.fill(); ctx.stroke();
+  const d = SUM.r * 0.7;
+  ctx.beginPath();
+  ctx.moveTo(SUM.x - d, Y - d); ctx.lineTo(SUM.x + d, Y + d);
+  ctx.moveTo(SUM.x + d, Y - d); ctx.lineTo(SUM.x - d, Y + d);
+  ctx.stroke();
+  ctx.font = '15px system-ui, sans-serif'; ctx.fillStyle = C.fg; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('+', SUM.x - SUM.r - 8, Y - 12);
+  ctx.fillText('−', SUM.x + 12, Y + SUM.r + 10);
+
+  const fs = 22;
+  block(ctx, INT.x, bY, INT.w, false, (x, y) => mfrac(ctx, [rm('1')], ['s'], x, y - 2, fs, C.fg));
+  caption(ctx, INT.x + INT.w / 2, bY + BH + 17, ['Integrador']);
+
+  let hv = hoverId === 'lf:pd';
+  block(ctx, KDB.x, bY, KDB.w, hv, (x, y) => {
+    // K_φ arriba y la característica media del detector abajo (ψ de −2π a 2π)
+    const col = hv ? C.avg : C.fg;
+    mdraw(ctx, KPHI, x, y - 3, 20, 'center', col);
+    const x0 = x - 28, ww = 56, y0 = y + 22, hh = 13;
+    ctx.strokeStyle = col; ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (!type2) [0, 0.25, 0.5, 0.75, 1].forEach((u, i) => ctx.lineTo(x0 + ww * u, y0 - hh * (i % 2)));
+    else { ctx.moveTo(x0, y0 - hh / 2); ctx.lineTo(x0 + ww, y0 - hh * 1.5); }
+    ctx.stroke();
+  });
+  caption(ctx, KDB.x + KDB.w / 2, bY + BH + 17, type2
+    ? ['Detector de fase', ['I', sb('cp'), rm('/2π = ' + fmt1(P.icp / TAU) + ' µA/rad')]]
+    : ['Detector de fase', ['V', sb('DD'), rm('/π = ' + fmt1(P.vdd / Math.PI) + ' V/rad')]], hv);
+  H.push({ id: 'pd', x: KDB.x, y: bY, w: KDB.w, h: BH });
+
+  hv = hoverId === 'lf:filt';
+  block(ctx, FB.x, bY, FB.w, hv, (x, y) => type2
+    ? mfrac(ctx, [rm('1 + '), 's', 'τ', sb('2')], ['s', 'C', { t: 'T', sub: 1 }, rm('(1 + '), 's', 'τ', sb('3'), rm(')')], x, y - 2, fs, hv ? C.avg : C.fg)
+    : mfrac(ctx, [rm('1')], [rm('1 + '), 's', rm('/'), 'ω', sb('1')], x, y - 2, fs, hv ? C.avg : C.fg));
+  caption(ctx, FB.x + FB.w / 2, bY + BH + 17, type2
+    ? ['Filtro (impedancia)', ['τ', sb('2'), rm(' = RC')]]
+    : ['Pasabajos', ['ω', sb('1'), rm(' = ' + fmt1(P.wc) + ' rad/s')]], hv);
+  H.push({ id: 'filt', x: FB.x, y: bY, w: FB.w, h: BH });
+
+  hv = hoverId === 'lf:vco';
+  block(ctx, VCO.x, VCO.y, VCO.w, hv, (x, y) => mdraw(ctx, KV, x, y + 7, fs, 'center', hv ? C.avg : C.fg));
+  caption(ctx, VCO.x + VCO.w / 2, VCO.y + BH + 17, ['VCO', ...vcoLines()], hv);
+  H.push({ id: 'vco', x: VCO.x, y: VCO.y, w: VCO.w, h: BH });
+
+  const rw = rangeW(), rv = [0, P.vdd];
+  for (const sc of [
+    { x: 20, y: 28, tap: [105, Y], title: W1, unit: '[rad/s]', series: [{ key: 'w1', col: 'v1' }], range: rw, ticks: ints(rw), fmt: fmtNum },
+    { x: 205, y: 28, tap: [290, Y], title: [...W1, MINUS, ...W2], unit: '[rad/s]', series: [{ key: 'dwl', col: 'fg' }], range: rangeSym(S.dwl), fmt: fmtNum },
+    { x: 390, y: 28, tap: [435, Y], title: ['∫(', ...W1, MINUS, ...W2, ')', rm('dt = '), 'φ', sb('1'), MINUS, 'φ', sb('2')], unit: '[rad]', series: [{ key: 'psi', col: 'fg' }], range: rangePi(S.psi), fmt: fmtPi },
+    { x: 745, y: 28, tap: [830, Y], title: [rm('GAS  '), ...VC], unit: '[V]', series: [{ key: 'vcl', col: 'avg' }], range: rv, ticks: ints(rv), fmt: fmtNum },
+    { x: 40, y: 228, h: 95, tap: [SUM.x, 270], side: 'right', title: W2, unit: '[rad/s]', series: [{ key: 'w1', col: 'v1', faint: 1 }, { key: 'w2l', col: 'v2' }], range: rw, ticks: ints(rw), fmt: fmtNum },
+  ]) drawScope(ctx, sc);
+  ctx.restore();
+}
+
+// Lazo de abajo: circuito, señales eléctricas
+// Resistor IEC (rectángulo) entre dos puntos alineados; body y thick: largo y ancho del cuerpo
+function resistor(ctx, x0, y0, x1, y1, body, thick) {
+  const L = Math.hypot(x1 - x0, y1 - y0), ux = (x1 - x0) / L, uy = (y1 - y0) / L;
+  const a = (L - body) / 2, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0); ctx.lineTo(x0 + ux * a, y0 + uy * a);
+  ctx.moveTo(x1, y1); ctx.lineTo(x1 - ux * a, y1 - uy * a);
+  ctx.stroke();
+  const w = ux ? body : thick, h = ux ? thick : body;
+  ctx.strokeRect(cx - w / 2, cy - h / 2, w, h);
+}
+function capacitor(ctx, x, y0, gap, wd) {   // vertical, placas en y0 y y0 + gap
+  ctx.beginPath();
+  ctx.moveTo(x - wd / 2, y0); ctx.lineTo(x + wd / 2, y0);
+  ctx.moveTo(x - wd / 2, y0 + gap); ctx.lineTo(x + wd / 2, y0 + gap);
+  ctx.stroke();
+}
+function ground(ctx, x, y) {
+  ctx.beginPath();
+  ctx.moveTo(x - 15, y); ctx.lineTo(x + 15, y);
+  ctx.moveTo(x - 7.5, y + 5.4); ctx.lineTo(x + 7.5, y + 5.4);
+  ctx.moveTo(x - 2.3, y + 10.7); ctx.lineTo(x + 2.3, y + 10.7);
+  ctx.stroke();
+}
+function label(ctx, parts, x, y, align, hv) { mdraw(ctx, parts, x, y, 16, align, hv ? C.avg : C.fg); }
+
+function drawCircuit() {
+  const [ctx, ex] = frameLoop('lp', 'Circuito');
+  const H = hits.lp = [];
+  const GX = 310, GW = 70, GH = 28;   // compuerta / PFD
+  const NX = 650;                     // nodo v_c
+
+  ctx.strokeStyle = C.fg; ctx.fillStyle = C.fg; ctx.lineWidth = 1.5;
+  wire(ctx, [[20, Y - 12], [GX - 1, Y - 12]], false);
+  wire(ctx, [[VCC.x, YF], [SUM.x, YF], [SUM.x, Y + 12], [GX - 1, Y + 12]], false);
+  wire(ctx, [[NX, Y], [XR, Y], [XR, YF], [VCC.x + VCC.w, YF]], true);
+
+  // comparador de fase
+  let hv = hoverId === 'lp:pd';
+  ink(ctx, hv);
+  if (!type2) {
+    ctx.fillStyle = C.panel;
+    ctx.beginPath();
+    ctx.moveTo(GX, Y - GH);
+    ctx.quadraticCurveTo(GX + 45, Y - GH, GX + GW, Y);
+    ctx.quadraticCurveTo(GX + 45, Y + GH, GX, Y + GH);
+    ctx.quadraticCurveTo(GX + 18, Y, GX, Y - GH);
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(GX - 8, Y - GH); ctx.quadraticCurveTo(GX + 10, Y, GX - 8, Y + GH); ctx.stroke();
+    caption(ctx, GX + GW / 2, Y + GH + 22, ['XOR', ['V', sb('DD'), rm(' = ' + fmt1(P.vdd) + ' V')]], hv);
+  } else {
+    ctx.fillStyle = C.panel;
+    ctx.beginPath(); ctx.rect(GX, Y - BH / 2, GW, BH); ctx.fill(); ctx.stroke();
+    ctx.font = '600 14px system-ui, sans-serif'; ctx.fillStyle = hv ? C.avg : C.fg;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('PFD', GX + GW / 2, Y);
+    ctx.font = '10px system-ui, sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText('R', GX + 4, Y - 12); ctx.fillText('V', GX + 4, Y + 12);
+    caption(ctx, GX + GW / 2, Y + BH / 2 + 17, ['PFD + bomba de carga', ['I', sb('cp'), rm(' = ' + fmt1(P.icp) + ' µA')]], hv);
+  }
+  H.push({ id: 'pd', x: GX - 10, y: Y - 32, w: GW + 12, h: 64 });
+
+  // filtro (proporciones del esquemático de referencia, escala 0.85)
+  hv = hoverId === 'lp:filt';
+  ctx.strokeStyle = C.fg; ctx.fillStyle = C.fg; ctx.lineWidth = 1.5;
+  if (!type2) {
+    const RX0 = 540, RX1 = 608;
+    wire(ctx, [[GX + GW, Y], [RX0, Y]], false);
+    wire(ctx, [[RX1, Y], [NX, Y]], false);
+    ink(ctx, hv);
+    resistor(ctx, RX0, Y, RX1, Y, 49, 19);
+    wire(ctx, [[NX, Y], [NX, Y + 49]], false);
+    capacitor(ctx, NX, Y + 49, 10, 37);
+    wire(ctx, [[NX, Y + 59], [NX, Y + 95]], false);
+    ground(ctx, NX, Y + 95);
+    const xr = (RX0 + RX1) / 2;
+    label(ctx, [rm('R')], xr, Y - 16, 'center', hv);
+    label(ctx, [rm(fmtR(rLP()))], xr, Y + 28, 'center', hv);
+    label(ctx, [rm('C')], NX + 15, Y + 37, 'left', hv);
+    label(ctx, [rm(fmt1(P.c) + ' µF')], NX + 15, Y + 83, 'left', hv);
+    H.push({ id: 'filt', x: RX0 - 10, y: Y - 34, w: NX + 90 - RX0, h: 140 });
+  } else {
+    // bomba de carga: fuente de corriente
+    const CX = 470, X2 = 740;
+    wire(ctx, [[GX + GW, Y], [CX - 16, Y]], false);
+    wire(ctx, [[CX + 16, Y], [NX, Y]], false);
+    ink(ctx, hv);
+    ctx.beginPath(); ctx.arc(CX, Y, 16, 0, TAU); ctx.stroke();
+    wire(ctx, [[CX - 8, Y], [CX + 8, Y]], true);
+    label(ctx, ['i', sb('cp')], CX, Y - 24, 'center', hv);
+    // R en serie con C
+    resistor(ctx, NX, Y, NX, Y + 62, 42, 16);
+    wire(ctx, [[NX, Y + 62], [NX, Y + 72]], false);
+    capacitor(ctx, NX, Y + 72, 9, 33);
+    wire(ctx, [[NX, Y + 81], [NX, Y + 96]], false);
+    ground(ctx, NX, Y + 96);
+    label(ctx, [rm('R')], NX + 22, Y + 36, 'left', hv);
+    label(ctx, [rm('C')], NX + 24, Y + 84, 'left', hv);
+    // C₂ al nodo
+    wire(ctx, [[X2, Y], [X2, Y + 49]], false);
+    capacitor(ctx, X2, Y + 49, 10, 37);
+    wire(ctx, [[X2, Y + 59], [X2, Y + 95]], false);
+    ground(ctx, X2, Y + 95);
+    label(ctx, ['C', sb('2')], X2 + 15, Y + 37, 'left', hv);
+    ctx.fillStyle = C.fg; dot(ctx, X2, Y);
+    caption(ctx, 820, Y + 40, ['R = ' + fmt1(P.r2) + ' kΩ', 'C = ' + fmt1(P.c) + ' µF', 'C₂ = ' + fmt1(P.c2) + ' µF'], false);
+    H.push({ id: 'filt', x: CX - 20, y: Y - 34, w: X2 + 60 - CX, h: 140 });
+  }
+  ctx.fillStyle = C.fg; dot(ctx, NX, Y);
+
+  hv = hoverId === 'lp:vco';
+  ink(ctx, hv); ctx.fillStyle = C.panel;
+  ctx.beginPath(); ctx.rect(VCC.x, VCC.y, VCC.w, BH); ctx.fill(); ctx.stroke();
+  ctx.font = '600 14px system-ui, sans-serif'; ctx.fillStyle = hv ? C.avg : C.fg;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('VCO', VCC.x + VCC.w / 2, YF);
+  caption(ctx, VCC.x + VCC.w / 2, VCC.y + BH + 17,
+    [[...W2, rm(' = '), 'ω', sb('min'), rm(' + '), ...KV, rm('·'), ...VC], ...vcoLines()], hv);
+  H.push({ id: 'vco', x: VCC.x, y: VCC.y, w: VCC.w, h: BH });
+
+  // osciloscopios: estirados hasta los bordes del canvas
+  const lv = [0, P.vdd], L0 = 10 - ex;
+  for (const sc of [
+    { x: L0, y: 28, w: 180 - L0, tap: [105, Y - 12], title: ['x', sb('1')], unit: '[V]', series: [{ key: 'x1', col: 'v1', step: 1 }], range: lv, fmt: fmtNum },
+    type2
+      ? { x: 225, y: 28, w: 500, tap: [430, Y], title: [rm('UP − DN')], unit: '', series: [{ key: 'pd', col: 'fg', step: 1 }], range: [-1, 1], fmt: fmtUD }
+      : { x: 225, y: 28, w: 500, tap: [430, Y], title: ['x', sb('1'), rm(' ⊕ '), 'x', sb('2')], unit: '[V]', series: [{ key: 'pd', col: 'fg', step: 1 }], range: lv, fmt: fmtNum },
+    { x: 745, y: 28, w: VW + ex - 10 - 745, tap: [830, Y], title: [rm('GAS  '), ...VC], unit: '[V]', series: [{ key: 'vc', col: 'avg' }], range: lv, ticks: ints(lv), fmt: fmtNum },
+    { x: L0, y: 228, w: 205 - L0, h: 95, tap: [SUM.x, 270], side: 'right', title: ['x', sb('2')], unit: '[V]', series: [{ key: 'x2', col: 'v2', step: 1 }], range: lv, fmt: fmtNum },
+  ]) drawScope(ctx, { lw: 1.5, ...sc });
+  ctx.restore();
+}
+
+// ---- Edición de constantes ----
+const fld = (k, lbl, min) => ({ k, lbl, min });
+function editSpec(id) {
+  if (id === 'pd') return type2
+    ? { ttl: 'PFD + bomba de carga', fields: [fld('icp', 'I<sub>cp</sub> [µA]', 0.1), fld('vdd', 'V<sub>DD</sub> [V]', 0.1)],
+        info: () => 'K<sub>φ</sub> = I<sub>cp</sub>/2π = ' + fmt1(P.icp / TAU) + ' µA/rad' }
+    : { ttl: 'Detector de fase (XOR)', fields: [fld('vdd', 'V<sub>DD</sub> [V]', 0.1)],
+        info: () => 'v<sub>d</sub> = V<sub>DD</sub>·(x<sub>1</sub> ⊕ x<sub>2</sub>)<br>K<sub>φ</sub> = V<sub>DD</sub>/π = ' + fmt1(P.vdd / Math.PI) + ' V/rad' };
+  if (id === 'filt') return type2
+    ? { ttl: 'Filtro: (R en serie con C) ∥ C<sub>2</sub>',
+        fields: [fld('r2', 'R [kΩ]', 10), fld('c', 'C [µF]', 0.1), fld('c2', 'C<sub>2</sub> [µF]', 1)],
+        info: () => {
+          const wn = Math.sqrt((kv()) * P.icp / (TAU * (P.c + P.c2))), z = P.r2 * P.c * 1e-3 * wn / 2;
+          return 'τ<sub>2</sub> = RC   C<sub>T</sub> = C + C<sub>2</sub>   τ<sub>3</sub> = R·CC<sub>2</sub>/C<sub>T</sub><br>' +
+                 'ω<sub>n</sub> ≈ ' + wn.toFixed(3) + ' rad/s   ζ ≈ ' + z.toFixed(2);
+        } }
+    : { ttl: 'Pasabajos RC', fields: [fld('wc', 'ω<sub>1</sub> [rad/s]', 0.01)],
+        info: () => 'C = ' + fmt1(P.c) + ' µF (fijo)<br>R = 1/(ω<sub>1</sub>C) = ' + fmtR(rLP()) + '   τ = ' + fmt1(tau1()) + ' s' };
+  return { ttl: 'VCO: ω<sub>2</sub> = ω<sub>min</sub> + K<sub>VCO</sub>·v<sub>c</sub>',
+           fields: [fld('wmin', 'ω<sub>min</sub> [rad/s]', 0), fld('wmax', 'ω<sub>max</sub> [rad/s]', 0)],
+           valid: () => P.wmax > P.wmin,
+           info: () => 'K<sub>VCO</sub> = (ω<sub>max</sub> − ω<sub>min</sub>)/V<sub>DD</sub> = ' + fmt1(kv()) + ' rad/(s·V)' };
+}
+
+const pop = $('pop');
+let popId = null;
+function openPop(id, cx, cy) {
+  const e = editSpec(id);
+  popId = id;
+  pop.innerHTML = '<div class="ttl">' + e.ttl + '</div>' +
+    e.fields.map(f =>
+      '<label><span>' + f.lbl + '</span><input type="number" step="any" min="' + f.min + '" data-k="' + f.k + '" value="' + P[f.k] + '"></label>').join('') +
+    '<div class="info"></div>';
+  const info = pop.querySelector('.info');
+  info.innerHTML = e.info();
+  pop.querySelectorAll('input').forEach(inp => inp.addEventListener('input', () => {
+    const v = parseFloat(inp.value), min = parseFloat(inp.min);
+    if (!Number.isFinite(v) || v < min) return;
+    const k = inp.dataset.k, old = P[k];
+    P[k] = v;
+    if (e.valid && !e.valid()) { P[k] = old; return; }
+    info.innerHTML = e.info(); labels();
+  }));
+  pop.hidden = false;
+  const r = pop.getBoundingClientRect();
+  pop.style.left = Math.max(8, Math.min(cx + 12, innerWidth - r.width - 8)) + 'px';
+  pop.style.top = Math.max(8, Math.min(cy + 12, innerHeight - r.height - 8)) + 'px';
+  pop.querySelector('input').focus();
+}
+function closePop() { pop.hidden = true; popId = null; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape' || (e.key === 'Enter' && popId)) closePop(); });
+document.addEventListener('pointerdown', e => { if (popId && !pop.contains(e.target)) closePop(); }, true);
+
+function hit(id, ev) {
+  const v = view[id];
+  if (!v) return null;
+  const r = $(id).getBoundingClientRect();
+  const x = (ev.clientX - r.left - v.ox) / v.s, y = (ev.clientY - r.top - v.oy) / v.s;
+  const z = hits[id].find(z => x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h);
+  return z ? z.id : null;
+}
+for (const id of ['lf', 'lp']) {
+  const cv = $(id);
+  cv.addEventListener('pointermove', ev => { const b = hit(id, ev); hoverId = b && id + ':' + b; cv.style.cursor = b ? 'pointer' : ''; });
+  cv.addEventListener('pointerleave', () => { hoverId = null; });
+  cv.addEventListener('click', ev => { const b = hit(id, ev); if (b) openPop(b, ev.clientX, ev.clientY); });
+}
+
+// ---- Arrastre del auto 1 sobre la pista ----
+let dragging = false;
+function angleAt(ev) {
+  const r = $('circ').getBoundingClientRect();
+  const x = ev.clientX - r.left - geo.cx, y = ev.clientY - r.top - geo.cy;
+  return { a: Math.atan2(-y, x), d: Math.hypot(x, y) };
+}
+function setPhase1(a) { ph1 += Math.atan2(Math.sin(a - ph1), Math.cos(a - ph1)); }
+$('circ').addEventListener('pointerdown', ev => {
+  const { a, d } = angleAt(ev);
+  if (Math.abs(d - geo.R) > 50) return;
+  dragging = true; $('circ').setPointerCapture(ev.pointerId); setPhase1(a);
+});
+$('circ').addEventListener('pointermove', ev => {
+  const { a, d } = angleAt(ev);
+  if (dragging) setPhase1(a);
+  $('circ').style.cursor = dragging ? 'grabbing' : Math.abs(d - geo.R) <= 50 ? 'grab' : '';
+});
+$('circ').addEventListener('pointerup', () => { dragging = false; });
+
+// ---- Loop ----
+let last = performance.now(), acc = 0;
+function loop(now) {
+  const dt = Math.min((now - last) / 1000, 0.25);
+  last = now;
+  if (!paused) {
+    acc += dt;
+    while (acc >= DT) { step(); acc -= DT; }
+  }
+  drawCircle();
+  drawModel();
+  drawCircuit();
+  $('w2v').textContent = vcoW().toFixed(2) + ' rad/s';
+  requestAnimationFrame(loop);
+}
+
+// ---- Controles ----
+function labels() {
+  $('w1v').textContent = (+$('w1').value).toFixed(2) + ' rad/s';
+  const { lock, capt } = ranges();
+  $('lockR').textContent = lock[0].toFixed(2) + ' – ' + lock[1].toFixed(2) + ' rad/s';
+  $('captR').textContent = (type2 ? '' : '≈ ') + capt[0].toFixed(2) + ' – ' + capt[1].toFixed(2) + ' rad/s';
+  // misma escala que el slider de ω₁
+  const sl = $('w1'), mn = +sl.min, mx = +sl.max;
+  const pos = ([a, b], el) => {
+    const l = clamp((a - mn) / (mx - mn), 0, 1), r = clamp((b - mn) / (mx - mn), 0, 1);
+    el.style.left = (l * 100) + '%'; el.style.width = (Math.max(0, r - l) * 100) + '%';
+  };
+  pos(lock, $('lockB')); pos(capt, $('captB'));
+}
+
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  readColors();
+  try { localStorage.setItem('theme', t); } catch (e) {}
+}
+$('theme').addEventListener('click', () =>
+  setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'));
+let mode = 'vector';
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+  try { localStorage.setItem('mode', m); } catch (e) {}
+}
+document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+let savedMode = null;
+try { savedMode = localStorage.getItem('mode'); } catch (e) {}
+setMode(['vector', 'car'].includes(savedMode) ? savedMode : 'car');
+
+let savedTheme = null;
+try { savedTheme = localStorage.getItem('theme'); } catch (e) {}
+setTheme(savedTheme === 'light' ? 'light' : 'dark');
+
+$('w1').addEventListener('input', labels);
+$('type2').addEventListener('change', e => setType2(e.target.checked));
+$('pause').addEventListener('click', () => {
+  paused = !paused; $('pause').textContent = paused ? 'Seguir' : 'Pausa';
+});
+$('reset').addEventListener('click', reset);
+
+// Constantes, ω₁ y tipo de comparador se recuerdan al ir y volver de la pantalla XOR
+try {
+  const sv = JSON.parse(localStorage.getItem('pll') || 'null');
+  if (sv) {
+    for (const k in P) if (Number.isFinite(sv.P?.[k])) P[k] = sv.P[k];
+    if (Number.isFinite(sv.w1)) $('w1').value = sv.w1;
+    $('type2').checked = !!sv.type2;
+  }
+} catch (e) {}
+addEventListener('pagehide', () => {
+  try { localStorage.setItem('pll', JSON.stringify({ P, w1: +$('w1').value, type2 })); } catch (e) {}
+});
+
+reset();
+setType2($('type2').checked);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

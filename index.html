@@ -43,6 +43,10 @@
   .seg button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0;
     border: none; border-radius: 8px; background: transparent; color: var(--muted); font-size: 20px; }
   .seg button.active { background: var(--panel); color: var(--fg); }
+  .seg a { display: grid; place-items: center; height: 34px; padding: 0 10px; border-radius: 8px;
+    color: var(--muted); text-decoration: none; font-size: 14px; }
+  .seg a.active { background: var(--panel); color: var(--fg); }
+  .seg a:not(.active):hover { color: var(--fg); }
   :root[data-theme="light"] .moon, :root:not([data-theme="light"]) .sun { display: none; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
@@ -109,6 +113,10 @@
           </svg>
         </button>
       </div>
+      <nav class="seg" aria-label="Pantallas">
+        <a href="index.html" class="active" aria-current="page">XOR</a>
+        <a href="pll.html">PLL</a>
+      </nav>
     </div>
 
     <canvas id="circ"></canvas>
@@ -475,6 +483,19 @@ $('pause').addEventListener('click', () => {
   paused = !paused; $('pause').textContent = paused ? 'Seguir' : 'Pausa';
 });
 $('reset').addEventListener('click', reset);
+
+// Velocidades (con su escala de turbo) y fases se recuerdan al ir y volver de la pantalla PLL
+const KEEP = ['rpm1', 'rpm2', 'a1', 'a2'];
+try {
+  const sv = JSON.parse(localStorage.getItem('xor') || 'null');
+  if (sv) for (const id of KEEP) if (sv[id]) { $(id).max = sv[id].max; $(id).value = sv[id].value; }
+} catch (e) {}
+a1Prev = +$('a1').value; a2Prev = +$('a2').value;
+addEventListener('pagehide', () => {
+  try {
+    localStorage.setItem('xor', JSON.stringify(Object.fromEntries(KEEP.map(id => [id, { value: $(id).value, max: $(id).max }]))));
+  } catch (e) {}
+});
 
 labels();
 turboState();
