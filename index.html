@@ -181,6 +181,13 @@
 </div>
 
 <script>
+// Si el link pide la otra pantalla (#p=pll…), se va ahí con los mismos parámetros
+if (new URLSearchParams(location.hash.slice(1)).get('p') === 'pll') {
+  location.replace('pll.html' + location.hash);
+  throw new Error('redirigiendo');
+}
+// Pegar otro link en la misma pestaña cambia solo el #: se recarga para aplicarlo
+addEventListener('hashchange', () => location.reload());
 const C = {};
 function readColors() {
   const css = getComputedStyle(document.documentElement);
@@ -633,6 +640,37 @@ try {
   const sv = JSON.parse(localStorage.getItem('xor') || 'null');
   if (sv) for (const id of KEEP) if (sv[id]) { $(id).max = sv[id].max; $(id).value = sv[id].value; }
 } catch (e) {}
+// ---- Estado en la URL ----
+// La dirección (#p=xor&x1=…) refleja la pantalla y los ajustes actuales, para copiar y compartir.
+// Al abrir, si trae parámetros, mandan sobre los valores por defecto y lo guardado.
+const num = v => +(+v).toFixed(4);
+function readURL() {
+  const q = new URLSearchParams(location.hash.slice(1));
+  const n = k => (q.has(k) && Number.isFinite(+q.get(k)) ? +q.get(k) : null);
+  for (const i of [1, 2]) {
+    const r = $('rpm' + i);
+    if (q.has('turbo' + i)) r.max = q.get('turbo' + i) === '1' ? BASE_MAX * 10 : BASE_MAX;
+    if (n('x' + i) !== null) r.value = n('x' + i);
+    if (n('a' + i) !== null) $('a' + i).value = n('a' + i);
+  }
+  if (['vector', 'car', 'animal'].includes(q.get('modo'))) setMode(q.get('modo'));
+  if (['light', 'dark'].includes(q.get('tema'))) setTheme(q.get('tema'));
+}
+function writeURL() {
+  const q = new URLSearchParams({ p: 'xor', modo: mode });
+  for (const i of [1, 2]) {
+    q.set('x' + i, num($('rpm' + i).value));
+    q.set('turbo' + i, +$('rpm' + i).max > BASE_MAX ? 1 : 0);
+    q.set('a' + i, num($('a' + i).value));
+  }
+  q.set('tema', document.documentElement.dataset.theme);
+  const h = '#' + q.toString();
+  if (h !== location.hash) history.replaceState(null, '', h);
+}
+readURL();
+setWindow();
+setInterval(writeURL, 400);
+
 a1Prev = +$('a1').value; a2Prev = +$('a2').value;
 addEventListener('pagehide', () => {
   try {
